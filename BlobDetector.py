@@ -5,6 +5,10 @@ NOTE: If importing the cv2 library gives you issues; install opencv-python inste
 import cv2 as cv
 import random
 import math
+import os.path
+import csv
+import pandas as pd
+import matplotlib.pyplot as plt
 global paused,startX,startY,rectPts,selectedKeypoints,keypoints
 startX = 0
 startY = 0
@@ -13,6 +17,10 @@ paused = False
 keypoints = None #Keypoints are blobs/points that the OpenCV classifier detects
 selectedKeypoints = False
 keypointsLabeled = {}
+
+#Clear existing
+textfile = open("output_new.csv", "w")
+textfile.truncate()
 
 '''
 https://drive.google.com/file/d/1eOvLamj6X_1wbLHkNcgyFj2a7N2L-ee7/view?usp=sharing 
@@ -138,10 +146,17 @@ def getMostAccurateKeypoint(prevPoint,points, thresHold):
 cv.namedWindow('Keypoints') #Creates a window called Keypoints
 cv.setMouseCallback('Keypoints', captureClick) #Calls captureClick whenever any mouse event is fired within the Keypoints window
 
+posDic = {
+
+    }
+framenum = 0
+
 while (videoFeed.isOpened()):
     global frame
     if (not paused):
         ret, frame = videoFeed.read() #Captures the next frame in the video. Everytime this is called, the video will progress one frame.
+        framenum += 1
+        print(framenum)
         if not selectedKeypoints: #If you havent selected any keypoints to track yet; then display footage normally
             if ret == True: #If theres a frame
                 gray = cv.cvtColor(frame,cv.COLOR_BGR2GRAY) #Grayscales the frame
@@ -158,13 +173,49 @@ while (videoFeed.isOpened()):
             '''
             gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY) #Grayscales frame
             keypoints = detector.detect(gray) #Detects keypoints in frame
+
+            m = 0
+            a = [[0] * m for i in range(2 * len(keypointsLabeled))]
+
             for i in keypointsLabeled: #Goes through each keypoint detected within the ROI
                 newPt = getMostAccurateKeypoint(keypointsLabeled[i],keypoints,10) #The best estimate of the closest point to the current keypoint
                 keypointsLabeled[i] = newPt #Sets the current point to the new point
+
+                a[2 * (i - 1)].append(newPt.pt[0])
+                a[2 * (i - 1) + 1].append(newPt.pt[1])
+
                 cv.circle(frame,(int(newPt.pt[0]),int(newPt.pt[1])),2,(0,0,255),2) #Draws a nice blue circle on the new point
                 cv.putText(frame,str(i),(int(newPt.pt[0]),int(newPt.pt[1])),cv.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0)) #Adds a label to the point
                 cv.drawKeypoints(frame, keypoints, frame, cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS) #Draws all the keypoints
                 cv.imshow('Keypoints',frame) #Shows the frame
+
+            print(a)
+            print(len(a))
+            print(int(len(a)/2))
+
+            for item in range(int(len(a)/2)):
+                header = 'X' + str(item + 1)
+                print(header)
+                print(2 * item)
+                posDic.update({header: a[2 * (item)]})
+                header = 'Y' + str(item + 1)
+                print(header)
+                print(2 * item)
+                posDic.update({header: a[2 * (item) + 1]})
+
+            print(posDic)
+            df = pd.DataFrame(posDic)
+            df.rename(index = {0:framenum}, inplace = True)
+            fileEmpty = os.stat('output_new.csv').st_size == 0
+            with open('output_new.csv', 'a', newline = '') as f:
+                if fileEmpty:
+                    df.to_csv(f, header = True)
+                else:
+                    df.to_csv(f, header = False)
+
+
+
+
 
     elif paused: #If paused;
         #This is when the ROI is drawn and the mouse is moving
