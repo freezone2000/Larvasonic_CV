@@ -9,18 +9,15 @@ import os.path
 import csv
 import pandas as pd
 import matplotlib.pyplot as plt
-global paused,startX,startY,rectPts,selectedKeypoints,keypoints
+global paused,startX,startY,rectPts,selectedKeypoints,keypoints, framenum
 startX = 0
 startY = 0
 rectPts = {}
 paused = False
 keypoints = None #Keypoints are blobs/points that the OpenCV classifier detects
 selectedKeypoints = False
+framenum = 0
 keypointsLabeled = {}
-
-#Clear existing
-textfile = open("output_new.csv", "w")
-textfile.truncate()
 
 '''
 https://drive.google.com/file/d/1eOvLamj6X_1wbLHkNcgyFj2a7N2L-ee7/view?usp=sharing 
@@ -59,9 +56,17 @@ params.minInertiaRatio = 0.01
 
 detector = cv.SimpleBlobDetector_create(params) #The actual detector
 
+# Dictionary that stores position
+posDic = {
+
+    }
+
 if (videoFeed.isOpened() == False):
     print("Error opening video stream or file")
 
+#Clear existing text file to make way for new data
+textfile = open("output_new.csv", "w")
+textfile.truncate()
 
 '''
 @brief Returns a random RGB color value
@@ -146,17 +151,12 @@ def getMostAccurateKeypoint(prevPoint,points, thresHold):
 cv.namedWindow('Keypoints') #Creates a window called Keypoints
 cv.setMouseCallback('Keypoints', captureClick) #Calls captureClick whenever any mouse event is fired within the Keypoints window
 
-posDic = {
-
-    }
-framenum = 0
 
 while (videoFeed.isOpened()):
     global frame
     if (not paused):
         ret, frame = videoFeed.read() #Captures the next frame in the video. Everytime this is called, the video will progress one frame.
-        framenum += 1
-        print(framenum)
+        framenum += 1 #Tracks frame number. Adds one to count everytime a new frame is loaded.
         if not selectedKeypoints: #If you havent selected any keypoints to track yet; then display footage normally
             if ret == True: #If theres a frame
                 gray = cv.cvtColor(frame,cv.COLOR_BGR2GRAY) #Grayscales the frame
@@ -174,47 +174,34 @@ while (videoFeed.isOpened()):
             gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY) #Grayscales frame
             keypoints = detector.detect(gray) #Detects keypoints in frame
 
-            m = 0
-            a = [[0] * m for i in range(2 * len(keypointsLabeled))]
+            a = [[0] * 0 for i in range(len(keypointsLabeled))] #Creates 2D array to hold the positions of each keypoint
 
             for i in keypointsLabeled: #Goes through each keypoint detected within the ROI
                 newPt = getMostAccurateKeypoint(keypointsLabeled[i],keypoints,10) #The best estimate of the closest point to the current keypoint
                 keypointsLabeled[i] = newPt #Sets the current point to the new point
-
-                a[2 * (i - 1)].append(newPt.pt[0])
-                a[2 * (i - 1) + 1].append(newPt.pt[1])
-
+                a[i - 1].append(newPt.pt[0]) #Adds X-position to array
+                a[i - 1].append(newPt.pt[1]) #Adds Y-position to array
                 cv.circle(frame,(int(newPt.pt[0]),int(newPt.pt[1])),2,(0,0,255),2) #Draws a nice blue circle on the new point
                 cv.putText(frame,str(i),(int(newPt.pt[0]),int(newPt.pt[1])),cv.FONT_HERSHEY_COMPLEX_SMALL,1,(255,0,0)) #Adds a label to the point
                 cv.drawKeypoints(frame, keypoints, frame, cv.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS) #Draws all the keypoints
                 cv.imshow('Keypoints',frame) #Shows the frame
-
-            print(a)
-            print(len(a))
-            print(int(len(a)/2))
-
-            for item in range(int(len(a)/2)):
-                header = 'X' + str(item + 1)
-                print(header)
-                print(2 * item)
-                posDic.update({header: a[2 * (item)]})
-                header = 'Y' + str(item + 1)
-                print(header)
-                print(2 * item)
-                posDic.update({header: a[2 * (item) + 1]})
-
-            print(posDic)
-            df = pd.DataFrame(posDic)
-            df.rename(index = {0:framenum}, inplace = True)
-            fileEmpty = os.stat('output_new.csv').st_size == 0
-            with open('output_new.csv', 'a', newline = '') as f:
-                if fileEmpty:
+            '''
+            The following lines gather the data collected, label it in a Dictionary, and output it to a csv file with proper formatting using the pandas library.
+            The data is constantly uploaded as the program is running. 
+            You could use a 2D array with a length of 2 * len(keypointsLabeled) and store X and Y in separate arrays and print at the end but I (Marina) chose this method.  
+            '''
+            for item in range(int(len(a))): #Pairs every coordinate in the 2D array to a label so that the data in the csv file makes sense
+                header = 'X' + str(item + 1) #Corresponding column title for X-value
+                posDic.update({header: a[item][0]}) #Adds X-value to dictionary
+                header = 'Y' + str(item + 1) #Corresponding column title for Y-value
+                posDic.update({header: a[(item)][1]}) #Adds Y-value to dictionary
+            df = pd.DataFrame(posDic, index = [framenum]) #Converts Dictionary to pandas DataFrame, sets index (leftmost column in csv file) equal to the frame number
+            fileEmpty = os.stat('output_new.csv').st_size == 0 #Checks if csv file is empty
+            with open('output_new.csv', 'a', newline = '') as f: #Opens the csv file and appends to it. See https://docs.python.org/3/library/csv.html#csv-fmt-params for more info.
+                if fileEmpty: #If file is empty, output titles for the columns. If not, just print the data.
                     df.to_csv(f, header = True)
                 else:
                     df.to_csv(f, header = False)
-
-
-
 
 
     elif paused: #If paused;
